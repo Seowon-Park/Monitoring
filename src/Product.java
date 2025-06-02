@@ -1,35 +1,33 @@
 import java.util.*;
 
-public class Product{
-    private String name;
-    private String price;
-    private boolean soldout;
+public class Product {
+    String code;
+    String name;
+    String price;
+    boolean soldOut;
 
-    Product(String name, String price, boolean soldout){
+    Product(String code, String name, String price, boolean soldOut) {
+        this.code = code;
         this.name = name;
         this.price = price;
-        this.soldout = soldout;
+        this.soldOut = soldOut;
     }
-
-    @Override
-    public boolean equals(Object o){ //객체 비교할때 쓸거임
-        if(this==o) return true;
-        if(!(o instanceof Product)) return false;
-        Product p = (Product) o;
-        return soldout == p.soldout &&
-                name.equals(p.name) &&
-                price.equals(p.price);
-    }
-
-    @Override
-    public int hashCode(){ // 상태 비교를 위해서는 같은 객체인지 확실히 알아야함
-        return Objects.hash(name, price, soldout);
-    }
-    //객체의 중요한 값(name, price, soldout)이 같으니까 같은 객체야~
 
     @Override
     public String toString() {
-        return name + ": "+ price+"("+(soldout ? "품절" : "판매중")+")";
+        return String.format("%s | %s | %s", name, price, soldOut ? "품절" : "판매중<<<<<<<<<<<<<<<");
     }
 
+    @Override
+    public boolean equals(Object o) {//Object 들어오게 오버라이딩했으니까
+        if (this == o) return true; //(진짜 똑같은 상품임)
+        if (!(o instanceof Product)) return false; //프로덕트 자기(or자손)이 아닌 애 막아야하고
+        Product product = (Product) o;// Product로 다시 돌려놔야지
+        return Objects.equals(code, product.code); //한쪽이 null이어도 안전하게 계산 -> false반환
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(code);
+    }
 }

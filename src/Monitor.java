@@ -3,6 +3,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
+import java.io.IOException;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 
@@ -10,75 +11,91 @@ public class Monitor {
     private static final String PAGE_URL = "https://www.swingguitars.com/612/?&page=1&sort=recent";
     private static final int SECOND = 10;
 
-    // 상품 목록 파싱
-    private static List<Product> fetchProducts() {
-        List<Product> products = new ArrayList<>(); //끝에 계속 추가 => ArrayList가 빠름.
+    public static void main(String[] args) throws InterruptedException {//sleep에 대한 InterruptedException
         try {
-            Document doc = Jsoup.connect(PAGE_URL)
-                    .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
-                    .timeout(10000)
-                    .get();
+            Map<String, Product> previousProducts = fetchProductMap();//맨처음 출력하는 상품
 
-            Elements items = doc.select(".shop-item");
-            for (Element item : items) {
-                String name = Optional.ofNullable(item.selectFirst("h2")).map(Element::text).orElse("");
-                String price = Optional.ofNullable(item.selectFirst(".item-pay .pay")).map(Element::text).orElse("");
-                boolean soldout = item.text().toUpperCase().contains("SOLDOUT");
-                products.add(new Product(name, price, soldout));
+            System.out.println("▶ 초기 상품 목록:");
+            previousProducts.values().forEach(System.out::println); // System.out::println ==value -> System.out.println(value) == System.out.println(value)
+
+            while (true) {
+                TimeUnit.SECONDS.sleep(SECOND);
+
+                Map<String, Product> currentProducts = fetchProductMap(); //map형식으로 현재 상품 목록 받음
+
+                Set<Product> added = new HashSet<>();
+                for (String code : currentProducts.keySet()) {
+                    if(!previousProducts.containsKey(code)) //code값 없으면 added셋에 추가
+                        added.add(currentProducts.get(code));
+                }
+
+                Set<Product> soldOutNow = new HashSet<>();
+                for (String code : currentProducts.keySet()) {
+                    Product before = previousProducts.get(code);//이전, 현재
+                    Product now = currentProducts.get(code);
+
+                    if (before != null && !before.soldOut && now.soldOut) {//이전엔 soldOut아니었는데, 지금은 soldOut인 것
+                        soldOutNow.add(now);
+                    }
+                }
+
+                if (!added.isEmpty() || !soldOutNow.isEmpty()) {
+                    notifyChanges(added, soldOutNow);
+                } else {
+                    System.out.println("10초 지남: 변경사항 없음");
+                }
+                previousProducts = currentProducts;
             }
-        } catch (Exception e) {
-            System.out.println("에러 발생: " + e.getMessage());
+        } catch(IOException e){
+            System.err.println("-페이지 요청 실패: " + e.getMessage());
         }
+
+    }
+
+    private static Map<String, Product> fetchProductMap() throws IOException  {//외부에서 받아오는 거니까 IOExceptoin
+        Document doc = Jsoup.connect(PAGE_URL)
+                        .userAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+                        .timeout(10000)
+                        .get();
+        Elements items = doc.select(".item-wrap");//Element의 리스트에 class="item-wrap"인 모든 요소 담는다.
+
+        Map<String, Product> products = new HashMap<>();
+
+        for (Element item : items) {
+            Element img = item.selectFirst("img[data-prodcode]");
+            if (img == null) continue; //null체크 때문에 있는 거임
+
+            //고유번호
+            String code = img.attr("data-prodcode");
+
+            // 이름
+            Element nameEl = item.selectFirst("h2");
+            String name = nameEl != null ? nameEl.text().trim() : "이름없음";
+            //null체크 nameEl.text().trim()=> nameEl.문자열만 빼오기.공백(줄바꿈)없애기
+
+            // 가격
+            Element priceEl = item.selectFirst("p.pay");
+            String price = priceEl != null ? priceEl.text().trim() : "가격없음"; //null체크
+
+            // 품절 유무
+            boolean soldOut = !item.select(".prod_icon.sold_out").isEmpty();
+            //sold_out.isEmpty()=> true면 솔드아웃태그 없다는 뜻. => not(!) 붙여야함
+
+            products.put(code, new Product(code, name, price, soldOut));
+        }
+
         return products;
     }
 
-    private static void notifyChanges(Set<Product> added, Set<Product> removed) {
-        System.out.println("\n[변경 감지 시각: " + new Date() + "]"); //[변경 감지 시각: 0000]
-        if (!added.isEmpty()) {//not 추가된거 없음
-            System.out.println("🆕 새 상품이 추가되었습니다:");
-            added.forEach(p -> System.out.println("- " + p)); //for (String p : added) 프린트 "- "+p.toString
+    public static void notifyChanges(Set<Product> added,Set<Product> soldOutNow)  {
+        System.out.println("\n[" + new Date() + "]"+" 변경 사항 감지됨:");
+        if (!added.isEmpty()) {
+            System.out.println("추가된 상품:");
+            added.forEach(System.out::println);
         }
-        if (!removed.isEmpty()) {//not 제거된거 없음
-            System.out.println("❌ 상품이 제거되었습니다:");
-            removed.forEach(p -> System.out.println("- " + p));
-        }
-    }
-
-    public static void main(String[] args) throws InterruptedException {
-        //상품 받아옴
-        List<Product> previousList = fetchProducts();
-        //상품 목록 출력
-        System.out.println("초기 상품 목록:");
-        previousList.forEach(p -> System.out.println("- " + p));
-
-        System.out.println("\n모니터링 시작...");
-
-        while (true) {
-            //10초 쉬고
-            TimeUnit.SECONDS.sleep(SECOND);
-            //다시 상품 받아옴
-            List<Product> currentList = fetchProducts();
-            if (currentList.isEmpty())  break;// 가져온 목록이 없다? => 오류. 10초 뒤에 다시 시작하자
-
-            Set<Product> oldSet = new HashSet<>(previousList);//이전 상품 Set
-            Set<Product> newSet = new HashSet<>(currentList);//최신 상품 Set
-
-            Set<Product> added = new HashSet<>(currentList); //최신 상품 리스트를 HashSet으로 생성. 얘를 Set이라 퉁치겠다~
-            added.removeAll(oldSet);//최신 상품 Set - 이전 상품 Set = 추가된 상품 Set
-
-            Set<Product> removed = new HashSet<>(previousList); //이전 상품 리스트를 HashSet으로 생성. 얘를 Set이라 퉁치겠다~
-            removed.removeAll(newSet);//이전 상품 Set - 최신 상품 Set = 품절된 상품 Set
-
-            if (!added.isEmpty() || !removed.isEmpty()) {
-                notifyChanges(added, removed);
-                previousList = currentList;
-            } else { //추가된 상품 Set 이랑 품절된 상품 Set 둘 다 비었다 => 추가, 품절 없다
-                System.out.println("10초 지남: 변경사항 없음");
-            }
+        if (!soldOutNow.isEmpty()) {
+            System.out.println("제거된 상품:");
+            soldOutNow.forEach(System.out::println);
         }
     }
 }
-
-
-// PS IdeaProjects\Monitoring> javac -encoding UTF-8 -cp jsoup-1.20.1.jar src/Monitor.java -d out
-// PS IdeaProjects\Monitoring> java -cp "jsoup-1.20.1.jar;out" Monitor
